@@ -7,6 +7,7 @@ import { detectPlatform } from './detect.ts';
 import { sanitize } from './core/format.ts';
 import { omnifetchHome, cleanScratch } from './core/paths.ts';
 import { timezoneCommand } from './commands/timezone.ts';
+import { runAsrCommand } from './commands/asr.ts';
 import { toMarkdown, toJSON } from './core/render.ts';
 import { downloadMedia } from './media/download.ts';
 import { fetchWechat } from './platforms/wechat/index.ts';
@@ -57,6 +58,7 @@ omnifetch / of — 统一内容抓取工具
   of version                        显示版本号
   of clean                          清空 ~/.omnifetch/cache/ 里的临时残留
   of timezone / of tz               查看/设置时区与时间格式（of timezone help 看更多）
+  of asr <audio-file-or-url>        音频分块 ASR → 总结/术语/润色文档（长任务建议 --background）
 
 支持平台:
 ${PLATFORMS.map(p => `  ${p.key.padEnd(16)} ${p.label.padEnd(20)} ${p.example}${p.auth ? `  (需 ${p.auth})` : ''}`).join('\n')}
@@ -84,6 +86,7 @@ ${PLATFORMS.map(p => `  ${p.key.padEnd(16)} ${p.label.padEnd(20)} ${p.example}${
   of BV1GJ411x7h7 --export ~/Notes --with-media y
   of https://x.com/elonmusk --json
   of detect https://podcasts.apple.com/cn/podcast/x/id1634356920?i=1000765020256
+  of asr ./episode.m4a --background --title "访谈逐字稿"
 `);
 }
 
@@ -160,6 +163,11 @@ async function main(): Promise<void> {
       flags.format ? String(flags.format) : undefined,
       flags.offset !== undefined ? String(flags.offset) : undefined,
     );
+    process.exit(code);
+  }
+
+  if (flags.asr) {
+    const code = await runAsrCommand(rest, flags);
     process.exit(code);
   }
 

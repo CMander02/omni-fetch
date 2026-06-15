@@ -44,6 +44,47 @@ of "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 of BV1GJ411x7h7 --no-subs
 ```
 
+### Audio ASR workflow
+
+Long audio transcription is available as a dedicated subcommand. It splits audio into temporary chunks, sends them to a configurable OpenAI-compatible ASR endpoint one by one, merges transcripts, generates a short summary and terminology candidates, optionally uses an OpenAI-compatible chat endpoint for batch polishing, then writes final artifacts under `output/<source>/<task-title>/` while removing intermediate chunks.
+
+```bash
+# Foreground run; best for short audio
+of asr ./episode.m4a --title "episode-notes"
+
+# Background run; recommended for long audio in agent/scheduler contexts
+of asr ./episode.m4a --background --title "episode-notes"
+
+# URL input also works when the URL directly points to an audio file
+of transcribe "https://example.com/audio.mp3" --background
+```
+
+ASR defaults to Groq's OpenAI-compatible transcription endpoint, but all endpoint/model choices are configurable:
+
+```bash
+export OMNIFETCH_ASR_API_URL=https://api.groq.com/openai/v1/audio/transcriptions
+export OMNIFETCH_ASR_API_KEY=...
+export OMNIFETCH_ASR_MODEL=whisper-large-v3-turbo
+
+# Optional LLM polishing / summary. Without this, omnifetch uses local heuristics.
+export OMNIFETCH_LLM_API_URL=https://api.openai.com/v1/chat/completions
+export OMNIFETCH_LLM_API_KEY=...
+export OMNIFETCH_LLM_MODEL=qwen/qwen3-32b
+```
+
+Final output folder contains only products, not chunk intermediates:
+
+```text
+output/<source>/<task-title>/
+├── document.md        # polished / cleaned full document
+├── summary.md         # concise summary
+├── terms.md           # guessed proper nouns and technical terms
+├── transcript.raw.md  # merged raw ASR transcript
+├── manifest.json
+├── job.json
+└── job.log            # only for background jobs
+```
+
 ### Options
 
 | Flag | Effect |
@@ -57,6 +98,13 @@ of BV1GJ411x7h7 --no-subs
 | `--mode <m>` | Zhihu Playwright mode: `gui` / `headless` |
 | `--no-subs` | Skip subtitle fetching |
 | `--sub-langs <l>` | Comma-separated subtitle langs (default `zh,zh-CN,zh-Hans,en`) |
+| `--background` | For `of asr`: run the audio ASR workflow detached and return job/output paths immediately |
+| `--title <title>` | For `of asr`: task title and output subdirectory name |
+| `--output-root <dir>` | For `of asr`: output root, default `./output` |
+| `--chunk-seconds <sec>` | For `of asr`: audio chunk length, default 600 seconds |
+| `--asr-api-url <url>` | For `of asr`: override OpenAI-compatible ASR endpoint |
+| `--asr-model <model>` | For `of asr`: override ASR model |
+| `--language <lang>` | For `of asr`: pass language hint to ASR endpoint |
 
 ## Platforms
 

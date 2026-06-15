@@ -6,7 +6,11 @@ export interface ParsedArgs {
 }
 
 // Flags that always consume the next argv as their value.
-const VALUE_FLAGS = new Set(['out', 'media-dir', 'quality', 'mode', 'sub-langs', 'type', 'with-media', 'out-dir', 'format', 'offset']);
+const VALUE_FLAGS = new Set([
+  'out', 'media-dir', 'quality', 'mode', 'sub-langs', 'type', 'with-media', 'out-dir',
+  'format', 'offset', 'title', 'output-root', 'chunk-seconds', 'asr-api-url', 'asr-model',
+  'language', 'mock-asr-text', 'job-id',
+]);
 
 // Flags that *optionally* consume the next argv: if it looks like a value
 // (doesn't start with - and isn't a URL/id), take it; otherwise leave it as
@@ -29,6 +33,8 @@ const SUBCOMMANDS: Record<string, string> = {
   clean: 'clean',
   timezone: 'timezone',
   tz: 'timezone',
+  asr: 'asr',
+  transcribe: 'asr',
 };
 
 const URL_RE = /https?:\/\/[^\s　<>"'】）)]+/i;
