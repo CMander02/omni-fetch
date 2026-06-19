@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { fmtUserTime, nowUserTime, fmtDuration, sanitize } from '../../core/format.ts';
 import type { FetchResult, MediaAsset, FetchOptions } from '../../core/types.ts';
 import { fetchSubtitles, detectYtdlp } from '../../core/ytdlp.ts';
@@ -6,11 +9,39 @@ import { fetchSubtitles, detectYtdlp } from '../../core/ytdlp.ts';
 const BILI_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 export const BILI_HEADERS = { 'User-Agent': BILI_UA, Referer: 'https://www.bilibili.com/' };
 
+function normalizeBiliCookie(raw: string): string {
+  const text = raw.trim();
+  if (!text) return '';
+  if (text.includes('=')) return text;
+  return `SESSDATA=${text}`;
+}
+
+function readBiliCookieFile(): string {
+  const paths = [
+    process.env.OMNIFETCH_BILIBILI_COOKIE_FILE,
+    join(homedir(), '.config', 'omnifetch', 'bilibili-cookie'),
+  ].filter(Boolean) as string[];
+  for (const path of paths) {
+    try {
+      const text = readFileSync(path, 'utf8');
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
+      if (!lines.length) continue;
+      const envLike = lines.find((line) => /^(OMNIFETCH_BILIBILI_COOKIE|BILIBILI_COOKIE|BILI_COOKIE|BILIBILI_SESSDATA|SESSDATA)=/.test(line));
+      if (envLike) return normalizeBiliCookie(envLike.slice(envLike.indexOf('=') + 1));
+      return normalizeBiliCookie(lines.join('; '));
+    } catch {
+      // Ignore missing/unreadable optional credential files.
+    }
+  }
+  return '';
+}
+
 function biliCookie(): string {
   const raw = process.env.OMNIFETCH_BILIBILI_COOKIE || process.env.BILIBILI_COOKIE || process.env.BILI_COOKIE || '';
-  if (raw.trim()) return raw.trim();
+  if (raw.trim()) return normalizeBiliCookie(raw);
   const sess = process.env.BILIBILI_SESSDATA || process.env.SESSDATA || '';
-  return sess.trim() ? `SESSDATA=${sess.trim()}` : '';
+  if (sess.trim()) return normalizeBiliCookie(sess);
+  return readBiliCookieFile();
 }
 
 function headersWithCookie(): Record<string, string> {
