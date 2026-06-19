@@ -6,6 +6,28 @@ import { fetchSubtitles, detectYtdlp } from '../../core/ytdlp.ts';
 const BILI_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 export const BILI_HEADERS = { 'User-Agent': BILI_UA, Referer: 'https://www.bilibili.com/' };
 
+function biliCookie(): string {
+  const raw = process.env.OMNIFETCH_BILIBILI_COOKIE || process.env.BILIBILI_COOKIE || process.env.BILI_COOKIE || '';
+  if (raw.trim()) return raw.trim();
+  const sess = process.env.BILIBILI_SESSDATA || process.env.SESSDATA || '';
+  return sess.trim() ? `SESSDATA=${sess.trim()}` : '';
+}
+
+function headersWithCookie(): Record<string, string> {
+  const cookie = biliCookie();
+  return cookie ? { ...BILI_HEADERS, Cookie: cookie } : BILI_HEADERS;
+}
+
+function fmtBiliTimestamp(sec: number | string | undefined): string {
+  const n = Number(sec || 0);
+  if (!Number.isFinite(n) || n < 0) return '00:00';
+  const h = Math.floor(n / 3600);
+  const m = Math.floor((n % 3600) / 60);
+  const s = Math.floor(n % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+
 const WBI_MIXIN_TAB = [
   46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
   27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
@@ -60,6 +82,55 @@ async function biliWbiKeys(): Promise<{ imgKey: string; subKey: string }> {
     imgKey: img_url.slice(img_url.lastIndexOf('/') + 1, img_url.lastIndexOf('.')),
     subKey: sub_url.slice(sub_url.lastIndexOf('/') + 1, sub_url.lastIndexOf('.')),
   };
+}
+
+
+async function fetchBiliAiSummary(params: { bvid: string; cid: number | string; upMid?: number | string; imgKey: string; subKey: string }): Promise<{ data?: any; error?: string; needLogin?: boolean }> {
+  const cookie = biliCookie();
+  if (!cookie) return { error: '需要登录 Cookie（设置 OMNIFETCH_BILIBILI_COOKIE / BILIBILI_COOKIE / BILI_COOKIE / SESSDATA）', needLogin: true };
+  const signed = encWbi({
+    bvid: params.bvid,
+    cid: String(params.cid),
+    ...(params.upMid ? { up_mid: String(params.upMid) } : {}),
+  }, params.imgKey, params.subKey);
+  const res = await fetch(`https://api.bilibili.com/x/web-interface/view/conclusion/get?${signed}`, { headers: headersWithCookie() });
+  const j: any = await res.json();
+  if (j.code !== 0) return { error: `Bili AI 总结 API ${j.code}: ${j.message}`, needLogin: j.code === -101 };
+  if (!j.data) return { error: 'Bili AI 总结 API 返回空 data' };
+  if (j.data.code !== 0) {
+    const reason = j.data.code === 1
+      ? (j.data.stid === '0' ? '该视频尚未生成 AI 总结，已进入/可进入总结队列' : '该视频无可用 AI 总结（可能未识别到语音）')
+      : '该视频不支持 AI 总结或请求异常';
+    return { data: j.data, error: reason };
+  }
+  return { data: j.data };
+}
+
+function aiSummaryToMarkdown(ai: any): string {
+  const model = ai?.model_result ?? {};
+  const lines: string[] = [];
+  if (model.summary) {
+    lines.push('## B站 AI 总结', '', String(model.summary).trim(), '');
+  }
+  const outline = Array.isArray(model.outline) ? model.outline : [];
+  if (outline.length) {
+    lines.push('### 分段提纲', '');
+    for (const item of outline) {
+      const title = String(item?.title ?? '').trim();
+      const ts = fmtBiliTimestamp(item?.timestamp);
+      if (title) lines.push(`- **${title}** (${ts})`);
+      const parts = Array.isArray(item?.part_outline) ? item.part_outline : [];
+      for (const part of parts) {
+        const content = String(part?.content ?? '').trim();
+        if (content) lines.push(`  - ${fmtBiliTimestamp(part?.timestamp)} ${content}`);
+      }
+    }
+    lines.push('');
+  }
+  const subtitles = Array.isArray(model.subtitle) ? model.subtitle : [];
+  const count = subtitles.reduce((sum: number, seg: any) => sum + (Array.isArray(seg?.part_subtitle) ? seg.part_subtitle.length : 0), 0);
+  if (count) lines.push(`> B站 AI 字幕分段：${count} 条（JSON 输出中保留完整 subtitle 字段）。`, '');
+  return lines.join('\n');
 }
 
 function parseBvid(input: string): string | null {
@@ -163,6 +234,34 @@ export async function fetchBilibili(url: string, opts: FetchOptions = {}): Promi
     }
   } catch (e: any) {
     console.error(`  ⚠ 播放地址获取失败: ${e.message}`);
+  }
+
+  try {
+    const { imgKey, subKey } = await biliWbiKeys();
+    const cid = pages[0]?.cid ?? info.pages?.[0]?.cid;
+    if (cid) {
+      const ai = await fetchBiliAiSummary({ bvid: info.bvid, cid, upMid: info.owner?.mid, imgKey, subKey });
+      if (ai.data) {
+        meta.ai_summary = ai.data.model_result ?? null;
+        meta.ai_summary_status = { code: ai.data.code, stid: ai.data.stid, status: ai.data.status, like_num: ai.data.like_num, dislike_num: ai.data.dislike_num };
+        const aiMd = aiSummaryToMarkdown(ai.data);
+        if (aiMd) body += `
+${aiMd}`;
+        if (ai.error) {
+          meta.ai_summary_note = ai.error;
+          console.error(`  ⚠ B站 AI 总结: ${ai.error}`);
+        } else {
+          console.error('  ✓ B站 AI 总结已抓取');
+        }
+      } else if (ai.error) {
+        meta.ai_summary_error = ai.error;
+        meta.ai_summary_need_login = !!ai.needLogin;
+        console.error(`  ⚠ B站 AI 总结跳过: ${ai.error}`);
+      }
+    }
+  } catch (e: any) {
+    meta.ai_summary_error = e.message;
+    console.error(`  ⚠ B站 AI 总结抓取失败: ${e.message}`);
   }
 
   // 字幕（yt-dlp）
