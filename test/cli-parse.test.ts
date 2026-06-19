@@ -163,3 +163,17 @@ test('parseArgs: xhslink short URL extracted from share text', () => {
   ]);
   assert.equal(r.url, 'https://xhslink.com/AbC123');
 });
+
+
+test('parseArgs: --article-mode consumes explicit fallback mode', () => {
+  const r = parseArgs(['node', 'of', 'https://example.com/a', '--article-mode', 'jina']);
+  assert.equal(r.url, 'https://example.com/a');
+  assert.equal(r.flags['article-mode'], 'jina');
+});
+
+test('parseArgs: --transcribe keeps normal positional input', () => {
+  const r = parseArgs(['node', 'of', './audio.m4a', '--transcribe', '--background']);
+  assert.equal(r.url, './audio.m4a');
+  assert.equal(r.flags.transcribe, true);
+  assert.equal(r.flags.background, true);
+});

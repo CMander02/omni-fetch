@@ -37,12 +37,26 @@ export interface BrowserPage {
  * default context. The user's cookies/login are reused. We close only the tab
  * we opened.
  */
-export async function openPage(targetUrl: string): Promise<BrowserPage> {
+export async function openPage(targetUrl: string, mode: 'gui' | 'headless' = 'gui'): Promise<BrowserPage> {
   let chromium: any;
   try {
     ({ chromium } = await import('playwright'));
   } catch {
     throw new Error('需要 Playwright。请运行: npm install playwright');
+  }
+
+  if (mode === 'headless') {
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    return {
+      page,
+      closeContext: async () => {
+        try { await context.close(); } catch { /* ignore */ }
+        try { await browser.close(); } catch { /* ignore */ }
+      },
+    };
   }
 
   let browser: any;

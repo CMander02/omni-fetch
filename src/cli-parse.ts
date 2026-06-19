@@ -9,7 +9,7 @@ export interface ParsedArgs {
 const VALUE_FLAGS = new Set([
   'out', 'media-dir', 'quality', 'mode', 'sub-langs', 'type', 'with-media', 'out-dir',
   'format', 'offset', 'title', 'output-root', 'chunk-seconds', 'asr-api-url', 'asr-model',
-  'language', 'mock-asr-text', 'job-id',
+  'language', 'mock-asr-text', 'job-id', 'article-mode',
 ]);
 
 // Flags that *optionally* consume the next argv: if it looks like a value

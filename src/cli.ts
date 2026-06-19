@@ -31,13 +31,13 @@ const PLATFORMS: Array<{ key: Platform; label: string; example: string; auth?: s
   { key: 'xiaoyuzhou',     label: '小宇宙',         example: 'xiaoyuzhoufm.com/podcast|episode/...' },
   { key: 'apple-podcasts', label: 'Apple Podcasts', example: 'podcasts.apple.com/<country>/podcast/<slug>/idXXX[?i=YYY]' },
   { key: 'bilibili',       label: 'Bilibili',       example: 'bilibili.com/video/BV... 或 BVxxxxxx' },
-  { key: 'rednote',        label: '小红书 (rednote)', example: 'xiaohongshu.com/...?xsec_token=... 或 xhslink.com/...' },
+  { key: 'rednote',        label: '小红书 (rednote)', example: 'xiaohongshu.com/...?xsec_token=... / user/profile/<uid> / xhslink.com/...' },
   { key: 'zhihu',          label: '知乎',           example: 'zhuanlan.zhihu.com/p/... 或 zhihu.com/question/.../answer/...', auth: 'Chrome CDP' },
   { key: 'x',              label: 'X (Twitter)',    example: 'x.com/<user> 或 x.com/<user>/status/<id>',                     auth: 'Chrome CDP' },
   { key: 'hackernews',     label: 'Hacker News',    example: 'news.ycombinator.com/item?id=X 或 /user?id=X' },
   { key: 'reddit',         label: 'Reddit',         example: 'reddit.com/r/<sub>/comments/<id>/... 或 /r/<sub> 或 /user/<name> 或 redd.it/<id>' },
   { key: 'pixiv',          label: 'Pixiv',          example: 'pixiv.net/artworks/<id> 或 /users/<id> 或 /novel/show.php?id=<id>', auth: 'Chrome CDP' },
-  { key: 'fallback',       label: '通用文章抓取',   example: '任意 URL → defuddle 抽正文 → 失败回退 yt-dlp' },
+  { key: 'fallback',       label: '通用文章抓取',   example: '任意 URL → defuddle/Jina/Playwright/HTML → 失败回退 yt-dlp' },
   { key: 'ytdlp-generic',  label: '视频 fallback',  example: 'YouTube/Vimeo 等 1000+ 站点（fallback 链最后一步）' },
 ];
 
@@ -51,6 +51,7 @@ omnifetch / of — 统一内容抓取工具
   of <url|id> --export [path]       导出到文件（默认 markdown，路径不传时用 sanitize(标题).<ext>）
   of <url|id> --export --type json  导出为 JSON
   of <url|id> --export --with-media y   导出同时下载媒体到同目录 media/<标题>/
+  of <audio-file-or-url> --transcribe    音频分块 ASR，输出到 output/<source>/<title>/
 
   of help                           显示本帮助
   of platforms                      列出所有支持平台
@@ -58,7 +59,7 @@ omnifetch / of — 统一内容抓取工具
   of version                        显示版本号
   of clean                          清空 ~/.omnifetch/cache/ 里的临时残留
   of timezone / of tz               查看/设置时区与时间格式（of timezone help 看更多）
-  of asr <audio-file-or-url>        音频分块 ASR → 总结/术语/润色文档（长任务建议 --background）
+  of asr <audio-file-or-url>        音频分块 ASR → 总结/术语/润色文档（兼容旧入口）
 
 支持平台:
 ${PLATFORMS.map(p => `  ${p.key.padEnd(16)} ${p.label.padEnd(20)} ${p.example}${p.auth ? `  (需 ${p.auth})` : ''}`).join('\n')}
@@ -71,7 +72,9 @@ ${PLATFORMS.map(p => `  ${p.key.padEnd(16)} ${p.label.padEnd(20)} ${p.example}${
   --with-media y|n         与 --export 配合，是否同时下载媒体（默认 n）
   --out <file>             兼容旧用法，等同 --export <file>
   --media / --media-dir    兼容旧用法
-  --quality 360p|480p|720p|1080p   B 站视频画质（默认 360p）
+  --quality 360p|480p|720p|1080p   B 站视频画质（默认 360p，无登录以 360p 为准）
+  --article-mode auto|defuddle|jina|playwright|html|yt-dlp   通用文章抓取渠道
+  --transcribe             将输入当作音频 URL/文件执行 ASR（等同 of asr <input>）
   --mode gui|headless      知乎/X 浏览器模式（默认 gui）
   --no-subs                视频不抓字幕（默认开启字幕，需 yt-dlp）
   --sub-langs zh,en        字幕语言（逗号分隔）
@@ -86,6 +89,7 @@ ${PLATFORMS.map(p => `  ${p.key.padEnd(16)} ${p.label.padEnd(20)} ${p.example}${
   of BV1GJ411x7h7 --export ~/Notes --with-media y
   of https://x.com/elonmusk --json
   of detect https://podcasts.apple.com/cn/podcast/x/id1634356920?i=1000765020256
+  of ./episode.m4a --transcribe --background --title "访谈逐字稿"
   of asr ./episode.m4a --background --title "访谈逐字稿"
 `);
 }
@@ -171,6 +175,12 @@ async function main(): Promise<void> {
     process.exit(code);
   }
 
+  if (flags.transcribe) {
+    const input = url || rest[0] || '';
+    const code = await runAsrCommand(input ? [input] : [], flags);
+    process.exit(code);
+  }
+
   if (flags.clean) {
     const r = cleanScratch();
     const mb = (r.bytes / 1048576).toFixed(2);
@@ -215,6 +225,8 @@ async function main(): Promise<void> {
   const opts: FetchOptions = {
     quality: flags.quality ? String(flags.quality) : '360p',
     mode: (flags.mode === 'headless' ? 'headless' : 'gui'),
+    articleMode: flags['article-mode'] ? String(flags['article-mode']) as FetchOptions['articleMode'] : undefined,
+    transcribe: !!flags.transcribe,
     noSubs: !!flags['no-subs'],
     subLangs: flags['sub-langs'] ? String(flags['sub-langs']).split(',') : undefined,
   };

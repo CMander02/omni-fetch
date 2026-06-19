@@ -37,6 +37,8 @@ export interface FetchResult {
 export interface FetchOptions {
   quality?: string;
   mode?: 'gui' | 'headless';
+  articleMode?: 'auto' | 'defuddle' | 'jina' | 'playwright' | 'html' | 'yt-dlp';
+  transcribe?: boolean;
   noSubs?: boolean;
   subLangs?: string[];
 }

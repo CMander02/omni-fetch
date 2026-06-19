@@ -37,11 +37,19 @@ of BV1GJ411x7h7 --out video.md
 # Download media along with metadata
 of BV1GJ411x7h7 --media --quality 720p
 
+# Generic article fallback channels
+of "https://example.com/article" --article-mode jina
+of "https://example.com/article" --article-mode playwright --mode headless
+of "https://example.com/article" --article-mode html
+
 # YouTube via yt-dlp fallback
 of "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 # Skip subtitle fetching (default is on for videos)
 of BV1GJ411x7h7 --no-subs
+
+# Audio transcription can be triggered as a flag on a file/URL
+of ./episode.m4a --transcribe --background --title "episode-notes"
 ```
 
 ### Audio ASR workflow
@@ -50,13 +58,16 @@ Long audio transcription is available as a dedicated subcommand. It splits audio
 
 ```bash
 # Foreground run; best for short audio
-of asr ./episode.m4a --title "episode-notes"
+of ./episode.m4a --transcribe --title "episode-notes"
+of asr ./episode.m4a --title "episode-notes"      # compatibility alias
 
 # Background run; recommended for long audio in agent/scheduler contexts
+of ./episode.m4a --transcribe --background --title "episode-notes"
 of asr ./episode.m4a --background --title "episode-notes"
 
 # URL input also works when the URL directly points to an audio file
-of transcribe "https://example.com/audio.mp3" --background
+of "https://example.com/audio.mp3" --transcribe --background
+of transcribe "https://example.com/audio.mp3" --background  # compatibility alias
 ```
 
 ASR defaults to Groq's OpenAI-compatible transcription endpoint, but all endpoint/model choices are configurable:
@@ -95,7 +106,9 @@ output/<source>/<task-title>/
 | `--media` | Download images / video / audio |
 | `--media-dir <dir>` | Media output dir (default `./media/<title>`) |
 | `--quality <q>` | Video quality: `360p` / `480p` / `720p` / `1080p` |
-| `--mode <m>` | Zhihu Playwright mode: `gui` / `headless` |
+| `--mode <m>` | Browser mode for CDP/browser platforms: `gui` reuses logged-in Chrome via CDP; `headless` launches Playwright Chromium without login |
+| `--article-mode <m>` | Generic article channel: `auto` (default), `defuddle`, `jina`, `playwright`, `html`, or `yt-dlp` |
+| `--transcribe` | Treat the input file/direct-audio URL as an ASR task (`of <audio> --transcribe`) |
 | `--no-subs` | Skip subtitle fetching |
 | `--sub-langs <l>` | Comma-separated subtitle langs (default `zh,zh-CN,zh-Hans,en`) |
 | `--background` | For `of asr`: run the audio ASR workflow detached and return job/output paths immediately |
@@ -111,9 +124,9 @@ output/<source>/<task-title>/
 - **WeChat (mp.weixin.qq.com)** — server-rendered, no auth needed.
 - **Xiaoyuzhou (xiaoyuzhoufm.com)** — podcasts & episodes via `__NEXT_DATA__`.
 - **Apple Podcasts (podcasts.apple.com)** — episode or show pages; uses the public iTunes Lookup API. Returns full description, m4a audio URL, RSS feed, and 600px artwork. No auth needed. Platform key: `apple-podcasts`.
-- **Bilibili** — WBI-signed API, up to 720P without login; subtitles via yt-dlp.
-- **Rednote (Xiaohongshu)** — `xsec_token` required; image-original URL rewriting; videos call yt-dlp for subs. Platform key: `rednote`.
-- **Zhihu zhuanlan / answer** — Playwright over CDP; reuses your Chrome login.
+- **Bilibili** — WBI-signed API; default `--quality 360p` for no-login reliability, higher qualities may require login or may fail; subtitles via yt-dlp.
+- **Rednote (Xiaohongshu)** — note pages require `xsec_token`; image-original URL rewriting; videos call yt-dlp for subs. Author profile URLs (`/user/profile/<uid>`) return username/user id/signature/counts and the homepage post list when present in `__INITIAL_STATE__`. Platform key: `rednote`.
+- **Zhihu zhuanlan / answer** — Playwright browser extraction. Default `--mode gui` reuses your logged-in Chrome via CDP; `--mode headless` launches Playwright Chromium without login and only works for content visible to anonymous users.
 - **X (Twitter)** — `x.com/<user>` returns the profile + recent tweets; `x.com/<user>/status/<id>` returns the tweet, expanding to the full thread when the same author keeps replying to themselves. Playwright over CDP; reuses your Chrome login.
 - **Hacker News (news.ycombinator.com)** — item & user pages via Firebase API. Item pages include up to 50 comments breadth-first.
 - **Pixiv (pixiv.net)** — artwork / user / novel pages via the internal `/ajax/...` endpoints, executed inside the user's logged-in Chrome (CDP). Original-resolution image URLs (`i.pximg.net`) come along; `--media` downloads them with the required `Referer: https://www.pixiv.net/` header. R-18 / follower-only works require the user be logged in. Platform key: `pixiv`.
@@ -123,7 +136,7 @@ output/<source>/<task-title>/
 
 ### Browser reuse (Chrome CDP)
 
-`zhihu` and `x` drive your existing Chrome via the DevTools Protocol — no separate profile, no extra login. Once per session, start Chrome with the remote-debugging port open:
+`zhihu`, `x`, and `pixiv` can drive your existing Chrome via the DevTools Protocol — no separate profile, no extra login. This is the default `--mode gui`. Once per session, start Chrome with the remote-debugging port open:
 
 ```bash
 # Windows

@@ -28,13 +28,13 @@ function parseZhihuUrl(url: string): ZhihuTarget | null {
   return null;
 }
 
-export async function fetchZhihu(url: string, _opts: FetchOptions = {}): Promise<FetchResult> {
+export async function fetchZhihu(url: string, opts: FetchOptions = {}): Promise<FetchResult> {
   const target = parseZhihuUrl(url);
   if (!target) throw new Error(`无法解析知乎 URL: ${url}`);
 
   const captured: { html: string; commentsApi: any[] } = { html: '', commentsApi: [] };
 
-  const { page, closeContext } = await openPage(url);
+  const { page, closeContext } = await openPage(url, opts.mode ?? 'gui');
   try {
     page.on('response', async (response: any) => {
       if (response.url().includes(`comment_v5/${target.commentsScope}/root_comment`)) {
@@ -114,6 +114,13 @@ export async function fetchZhihu(url: string, _opts: FetchOptions = {}): Promise
     }
     author = entity.author;
     ipInfo = entity.ipInfo ?? '';
+  }
+
+  if (!title && !bodyMd) {
+    const modeHint = opts.mode === 'headless'
+      ? 'headless 模式未拿到公开内容，可能遇到登录墙/反爬；请改用已登录 Chrome CDP（默认 gui）或换可公开访问 URL'
+      : '未从页面初始状态解析到知乎内容；请确认 Chrome CDP 已启动并登录知乎';
+    throw new Error(modeHint);
   }
 
   const comments: any[] = [];
