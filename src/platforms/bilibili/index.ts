@@ -137,23 +137,82 @@ async function fetchBiliAiSummary(params: { bvid: string; cid: number | string; 
   return { data: j.data };
 }
 
+export interface BiliOutlinePoint {
+  timestamp: number;
+  time: string;
+  content: string;
+  segment_timestamp?: number;
+  segment_time?: string;
+  segment_title?: string;
+}
+
+export interface BiliOutlineSegment {
+  timestamp: number;
+  time: string;
+  title: string;
+  details: BiliOutlinePoint[];
+}
+
+export interface BiliNormalizedOutline {
+  summary: string;
+  time_kv: Record<string, string>;
+  detail_kv: Record<string, string>;
+  segments: BiliOutlineSegment[];
+  details: BiliOutlinePoint[];
+}
+
+export function normalizeBiliAiOutline(ai: any): BiliNormalizedOutline {
+  const model = ai?.model_result ?? ai ?? {};
+  const rawSegments = Array.isArray(model.outline) ? model.outline : [];
+  const result: BiliNormalizedOutline = {
+    summary: String(model.summary ?? '').trim(),
+    time_kv: {},
+    detail_kv: {},
+    segments: [],
+    details: [],
+  };
+  for (const item of rawSegments) {
+    const timestamp = Number(item?.timestamp ?? 0);
+    const time = fmtBiliTimestamp(timestamp);
+    const title = String(item?.title ?? '').trim();
+    if (title) result.time_kv[time] = title;
+    const segment: BiliOutlineSegment = { timestamp, time, title, details: [] };
+    const parts = Array.isArray(item?.part_outline) ? item.part_outline : [];
+    for (const part of parts) {
+      const pointTimestamp = Number(part?.timestamp ?? 0);
+      const pointTime = fmtBiliTimestamp(pointTimestamp);
+      const content = String(part?.content ?? '').trim();
+      if (!content) continue;
+      const point: BiliOutlinePoint = {
+        timestamp: pointTimestamp,
+        time: pointTime,
+        content,
+        segment_timestamp: timestamp,
+        segment_time: time,
+        segment_title: title,
+      };
+      result.detail_kv[pointTime] = content;
+      segment.details.push(point);
+      result.details.push(point);
+    }
+    if (title || segment.details.length) result.segments.push(segment);
+  }
+  return result;
+}
+
 function aiSummaryToMarkdown(ai: any): string {
   const model = ai?.model_result ?? {};
+  const outline = normalizeBiliAiOutline(model);
   const lines: string[] = [];
-  if (model.summary) {
-    lines.push('## B站 AI 总结', '', String(model.summary).trim(), '');
+  if (outline.summary) {
+    lines.push('## B站 AI 总结', '', outline.summary, '');
   }
-  const outline = Array.isArray(model.outline) ? model.outline : [];
-  if (outline.length) {
-    lines.push('### 分段提纲', '');
-    for (const item of outline) {
-      const title = String(item?.title ?? '').trim();
-      const ts = fmtBiliTimestamp(item?.timestamp);
-      if (title) lines.push(`- **${title}** (${ts})`);
-      const parts = Array.isArray(item?.part_outline) ? item.part_outline : [];
-      for (const part of parts) {
-        const content = String(part?.content ?? '').trim();
-        if (content) lines.push(`  - ${fmtBiliTimestamp(part?.timestamp)} ${content}`);
+  if (outline.segments.length) {
+    lines.push('### AI 时间轴', '');
+    for (const segment of outline.segments) {
+      if (segment.title) lines.push(`- **${segment.time}** ${segment.title}`);
+      for (const part of segment.details) {
+        lines.push(`  - **${part.time}** ${part.content}`);
       }
     }
     lines.push('');
@@ -274,6 +333,7 @@ export async function fetchBilibili(url: string, opts: FetchOptions = {}): Promi
       const ai = await fetchBiliAiSummary({ bvid: info.bvid, cid, upMid: info.owner?.mid, imgKey, subKey });
       if (ai.data) {
         meta.ai_summary = ai.data.model_result ?? null;
+        meta.outline = normalizeBiliAiOutline(ai.data.model_result ?? null);
         meta.ai_summary_status = { code: ai.data.code, stid: ai.data.stid, status: ai.data.status, like_num: ai.data.like_num, dislike_num: ai.data.dislike_num };
         const aiMd = aiSummaryToMarkdown(ai.data);
         if (aiMd) body += `
